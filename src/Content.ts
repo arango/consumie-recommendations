@@ -1,50 +1,60 @@
-import { Connection } from "./Connection";
+import { CallProcedure } from "./Connection";
+import { ContentData } from "./ContentData";
 
 export class Content {
 	id: number;
 	name?: string;
 	type?: string;
 	image?: string;
+	url?: string;
+	data?: ContentData;
+	raw_data?: string;
 
 	constructor({
 		id,
 		name = undefined,
 		type = undefined,
-		image = undefined
+		image = undefined,
+		url = undefined,
+		data = undefined,
+		raw_data = undefined
 	}: {
 		id: number;
 		name?: string;
 		type?: string;
 		image?: string;
+		url?: string;
+		data?: ContentData;
+		raw_data?: string;
 	}) {
 		this.id = id;
 		this.name = name;
 		this.type = type;
 		this.image = image;
+		this.url = url;
+		this.data = data;
+		this.raw_data = raw_data;
 	}
 
 	weights: Record<string, number> = {
-		ACTOR: 1,
-		ARTIST: 1,
+		PERFORMER: 1,
 		CREATOR: 1,
-		DIRECTOR: 0.5,
 		GENRE: 0.5,
-		PLATFORM: 0.5,
-		WRITER: 1,
+		MEDIUM: 1,
 		LIST_FREQUENCY: 0.8
 	};
 
 	async getSimilarContent() {
-		let existSimilar = await getExitingSimilarContent({
+		let existSimilar = await getExistingSimilarContent({
 			contentID: this.id
 		});
+		//console.log(existSimilar);
 		// If there is recent content in the db, return that
 		if (existSimilar.length > 0) {
 			return await populateContent({ similarIDs: existSimilar });
 		}
 
 		// Otherwise, get the info for building similar content
-
 		// First get the list cohorts
 
 		const listCohorts = await getListCohorts({
@@ -73,7 +83,7 @@ export class Content {
 				cohorts[c.content_id].points +
 				c.frequency * this.weights[c.type];
 
-			// Storing reasons in case we want to debug/mess with weights
+			// Attaching reasons in case we want to debug/mess with weights
 			cohorts[
 				c.content_id
 			].reason += `Type: ${c.type} Pts: ${c.frequency} `;
@@ -95,21 +105,18 @@ export class Content {
 		return await populateContent({ similarIDs: ids });
 	}
 }
-const getExitingSimilarContent = async ({
+const getExistingSimilarContent = async ({
 	contentID
 }: {
 	contentID: number;
 }) => {
-	interface ExistingSimilarContentResults {
+	type ExistingSimilarContentResults = {
 		similar_id: number;
 	}
-	let rows: ExistingSimilarContentResults[] = [];
-	try {
-		[rows] = await Connection().conn.query(
-			"SELECT similar_id FROM content_similar WHERE content_id = ? AND date_created > DATE_SUB(NOW(), INTERVAL 7 DAY)",
-			[contentID]
-		);
-	} catch (e) {}
+	let rows: ExistingSimilarContentResults[] = await CallProcedure({
+		proc: "usp_GetSimilarContent",
+		args: [contentID] }
+	)
 	let out: number[] = [];
 	rows.forEach((row) => {
 		out.push(row.similar_id);
@@ -117,31 +124,17 @@ const getExitingSimilarContent = async ({
 	return out;
 };
 const getListCohorts = async ({ contentID }: { contentID: number }) => {
-	let rows: CohortResult[] = [];
-	try {
-		[rows] = await Connection().conn.query(
-			"SELECT content_id, 'LIST_FREQUENCY' AS type, COUNT(list_id) AS frequency FROM map_list_content WHERE content_id != ? AND list_id IN (SELECT list_id FROM map_list_content WHERE content_id = ?) GROUP BY content_id",
-			[contentID, contentID]
-		);
-	} catch (e) {}
+	let rows: CohortResult[] = await CallProcedure({
+			proc: "usp_GetListCohorts",
+			args: [contentID]
+	});
 	return rows;
 };
 const getKeywordCohorts = async ({ contentID }: { contentID: number }) => {
-	let rows: CohortResult[] = [];
-	try {
-		[rows] = await Connection().conn.query(
-			`
-               SELECT ck1.content_id, ck1.type, COUNT(ck1.id) AS frequency
-               FROM content_keywords ck1
-               INNER JOIN content_keywords ck2 ON
-               ck1.keyword = ck2.keyword AND ck2.type = ck2.type
-               WHERE ck2.content_id = ? AND ck1.content_id != ?
-               GROUP BY ck1.content_id, ck1.type
-               `,
-			[contentID, contentID]
-		);
-	} catch (e) {}
-
+	let rows: CohortResult[] = await CallProcedure({
+		proc: "usp_GetKeywordCohorts",
+		args: [contentID]
+	});
 	return rows;
 };
 const saveSimilarContent = async ({
@@ -154,41 +147,36 @@ const saveSimilarContent = async ({
 	let values: string[] = [];
 	let args: number[] = [];
 	let i: number = 0;
-	similarContent.forEach((sc) => {
-		values.push("(?, ?, ?, NOW())");
-		args.push(contentID, sc.id, i);
-		i++;
+	await CallProcedure({
+		proc: "usp_CreateSimilarContent",
+		args: [contentID, similarContent.map(({id}) => {
+			return id
+		}).join(",")]
 	});
-	try {
-		await Connection().conn.query(
-			"DELETE FROM content_similar WHERE content_id = ?",
-			[contentID]
-		);
-		await Connection().conn.query(
-			`
-               INSERT INTO content_similar (content_id, similar_id, sort_order, date_created) VALUES
-               ${values.join(", ")}
-               `,
-			args
-		);
-	} catch (e) {}
 };
 const populateContent = async ({ similarIDs }: { similarIDs: number[] }) => {
-	let rows: Content[] = [];
-	try {
-		[rows] = await Connection().conn.query(
-			"SELECT id, name, image, type FROM content WHERE id IN (?)",
-			[similarIDs]
-		);
-		rows.forEach((row) => {
-			row.image =
-				row.image === null
-					? undefined
-					: `${Math.floor(row.id / 1000)}/${row.id % 100}/${
-							row.id
-					  }`;
+	if (similarIDs.length == 0) {
+		return [];
+	}
+	let rows: Content[] = await CallProcedure({
+		proc: "usp_GetContents",
+		args: [similarIDs.join(",")]
+	});
+	rows.forEach((row) => {
+		const parenthetical: string = JSON.parse(
+			row.raw_data || "{}"
+		).parenthetical;
+		row.data = new ContentData({
+			parenthetical: parenthetical
 		});
-	} catch (e) {}
+		delete row.raw_data;
+		row.image =
+			row.image === null
+				? undefined
+				: `${Math.floor(row.id / 1000)}/${row.id % 100}/${
+						row.id
+					}`;
+	});
 	return rows.sort((a, b) => {
 		let a_pos: number = -1;
 		let b_pos: number = -1;
@@ -205,12 +193,12 @@ const populateContent = async ({ similarIDs }: { similarIDs: number[] }) => {
 		return a_pos - b_pos;
 	});
 };
-interface CohortResult {
+type CohortResult = {
 	content_id: number;
 	type: string;
 	frequency: number;
 }
-interface Score {
+type Score = {
 	id: number;
 	points: number;
 	reason: string;
