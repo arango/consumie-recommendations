@@ -1,5 +1,5 @@
 import { CallProcedure } from "./Connection";
-import { ContentData } from "./ContentData";
+import { CohortResult, SimilarContentResults, Score, ContentData, Weight } from "./Models/models";
 
 export class Content {
 	id: number;
@@ -36,12 +36,28 @@ export class Content {
 		this.raw_data = raw_data;
 	}
 
-	weights: Record<string, number> = {
-		PERFORMER: 1,
-		CREATOR: 1,
-		GENRE: 0.5,
-		MEDIUM: 1,
-		LIST_FREQUENCY: 0.8
+	// Define weighting logic values
+	weights: Record<string, Weight> = {
+		PERFORMER: {
+			weight: .9,
+			cap: 4
+		},
+		CREATOR: {
+			weight: 1.25,
+			cap: 3
+		},
+		GENRE: {
+			weight: 0.5,
+			cap: 1
+		},
+		MEDIUM: {
+			weight: .75,
+			cap: 1.5
+		},
+		LIST_FREQUENCY: {
+			weight: 0.8,
+			cap: 3
+		}
 	};
 
 	async getSimilarContent() {
@@ -79,14 +95,18 @@ export class Content {
 				};
 				cohorts[c.content_id] = score;
 			}
+			let points:number = c.frequency * this.weights[c.type].weight;
+			if (points > this.weights[c.type].cap) {
+				points = this.weights[c.type].cap;
+			}
+			
 			cohorts[c.content_id].points =
-				cohorts[c.content_id].points +
-				c.frequency * this.weights[c.type];
+				cohorts[c.content_id].points + points;
 
 			// Attaching reasons in case we want to debug/mess with weights
 			cohorts[
 				c.content_id
-			].reason += `Type: ${c.type} Pts: ${c.frequency} `;
+			].reason += `${c.type} Pts: ${points} `;
 		});
 
 		// Sort by scores and get top 20
@@ -110,10 +130,7 @@ const getExistingSimilarContent = async ({
 }: {
 	contentID: number;
 }) => {
-	type ExistingSimilarContentResults = {
-		similar_id: number;
-	}
-	let rows: ExistingSimilarContentResults[] = await CallProcedure({
+	let rows: SimilarContentResults[] = await CallProcedure({
 		proc: "usp_GetSimilarContent",
 		args: [contentID] }
 	)
@@ -166,9 +183,9 @@ const populateContent = async ({ similarIDs }: { similarIDs: number[] }) => {
 		const parenthetical: string = JSON.parse(
 			row.raw_data || "{}"
 		).parenthetical;
-		row.data = new ContentData({
-			parenthetical: parenthetical
-		});
+		row.data = {
+			parenthtical: parenthetical
+		};
 		delete row.raw_data;
 		row.image =
 			row.image === null
@@ -193,13 +210,4 @@ const populateContent = async ({ similarIDs }: { similarIDs: number[] }) => {
 		return a_pos - b_pos;
 	});
 };
-type CohortResult = {
-	content_id: number;
-	type: string;
-	frequency: number;
-}
-type Score = {
-	id: number;
-	points: number;
-	reason: string;
-}
+
