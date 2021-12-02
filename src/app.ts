@@ -11,6 +11,7 @@ import * as https from "https";
 import * as fs from "fs";
 
 import { Content } from "./Content";
+import { User } from "./User";
 
 config();
 
@@ -44,6 +45,19 @@ app.get("/similar/:contentID", async (_req: Request, res: Response) => {
 	const c: Content = new Content({ id: contentID });
 	const similar = await c.getSimilarContent();
 	res.json(similar);
+});
+
+app.get("/recommended/:userID/:type", async (_req: Request, res: Response) => {
+	const userID: number = Number(_req.params.userID);
+	const type: string = String(_req.params.type);
+	if (isNaN(userID)) {
+		res.status(500);
+		res.json({ error: { message: "ID must be a number" } });
+		return;
+	}
+	const u: User = new User({ id: userID });
+	const recommendations = await u.getRecommendedContent({ type: type });
+	res.json(recommendations);
 });
 
 const PORT: string | number = process.env.PORT || 5000;

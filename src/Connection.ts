@@ -26,13 +26,23 @@ pool.getConnection(function (err, c) {
 	console.log("MYSQL Pool initialized");
 });
 
-
-export const CallProcedure = async({proc, args} : {proc: string, args: any[]}) => {
-	let data:any[] = [];
+export const CallProcedure = async ({
+	proc,
+	args
+}: {
+	proc: string;
+	args: any[];
+}) => {
+	let data: any[] = [];
 	try {
-		[data] = await conn.query(`CALL ${proc} (${args.map((f) => {
-			return "?"
-		}).join(", ")})`, args);
+		[data] = await conn.query(
+			`CALL ${proc} (${args
+				.map((f) => {
+					return "?";
+				})
+				.join(", ")})`,
+			args
+		);
 		if (data.length > 0) {
 			return data[0];
 		} else {
@@ -42,8 +52,7 @@ export const CallProcedure = async({proc, args} : {proc: string, args: any[]}) =
 		console.log(e);
 		return [];
 	}
-}
-
+};
 
 type MYSQLconfig = {
 	host: string;
@@ -53,4 +62,4 @@ type MYSQLconfig = {
 	ssl: string | undefined;
 	connectionLimit: number;
 	multipleStatements: boolean;
-}
+};

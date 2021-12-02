@@ -1,5 +1,10 @@
 import { CallProcedure } from "./Connection";
-import { CohortResult, SimilarContentResults, Score, ContentData, Weight } from "./Models/models";
+import { CohortResult } from "./Models/CohortResult";
+import { SimilarContentResults } from "./Models/SimilarContestResults";
+import { Score } from "./Models/Score";
+import { ContentData } from "./Models/ContentData";
+import { Weight } from "./Models/Weight";
+import { PopulateContent } from "./ContentLoader";
 
 export class Content {
 	id: number;
@@ -9,6 +14,8 @@ export class Content {
 	url?: string;
 	data?: ContentData;
 	raw_data?: string;
+	relatedContent?: Content[];
+	count?: number;
 
 	constructor({
 		id,
@@ -36,38 +43,16 @@ export class Content {
 		this.raw_data = raw_data;
 	}
 
-	// Define weighting logic values
-	weights: Record<string, Weight> = {
-		PERFORMER: {
-			weight: .9,
-			cap: 4
-		},
-		CREATOR: {
-			weight: 1.25,
-			cap: 3
-		},
-		GENRE: {
-			weight: 0.5,
-			cap: 1
-		},
-		MEDIUM: {
-			weight: .75,
-			cap: 1.5
-		},
-		LIST_FREQUENCY: {
-			weight: 0.8,
-			cap: 3
-		}
-	};
-
 	async getSimilarContent() {
 		let existSimilar = await getExistingSimilarContent({
 			contentID: this.id
 		});
-		//console.log(existSimilar);
 		// If there is recent content in the db, return that
 		if (existSimilar.length > 0) {
-			return await populateContent({ similarIDs: existSimilar });
+			this.relatedContent = await PopulateContent({
+				contentIDs: existSimilar
+			});
+			return this.relatedContent;
 		}
 
 		// Otherwise, get the info for building similar content
@@ -95,18 +80,16 @@ export class Content {
 				};
 				cohorts[c.content_id] = score;
 			}
-			let points:number = c.frequency * this.weights[c.type].weight;
-			if (points > this.weights[c.type].cap) {
-				points = this.weights[c.type].cap;
+			let points: number = c.frequency * weights[c.type].weight;
+			if (points > weights[c.type].cap) {
+				points = weights[c.type].cap;
 			}
-			
+
 			cohorts[c.content_id].points =
 				cohorts[c.content_id].points + points;
 
 			// Attaching reasons in case we want to debug/mess with weights
-			cohorts[
-				c.content_id
-			].reason += `${c.type} Pts: ${points} `;
+			cohorts[c.content_id].reason += `${c.type} Pts: ${points} `;
 		});
 
 		// Sort by scores and get top 20
@@ -122,7 +105,10 @@ export class Content {
 		const ids: number[] = sorted.map(({ id }) => {
 			return id;
 		});
-		return await populateContent({ similarIDs: ids });
+		this.relatedContent = await PopulateContent({
+			contentIDs: existSimilar
+		});
+		return this.relatedContent;
 	}
 }
 const getExistingSimilarContent = async ({
@@ -132,8 +118,8 @@ const getExistingSimilarContent = async ({
 }) => {
 	let rows: SimilarContentResults[] = await CallProcedure({
 		proc: "usp_GetSimilarContent",
-		args: [contentID] }
-	)
+		args: [contentID]
+	});
 	let out: number[] = [];
 	rows.forEach((row) => {
 		out.push(row.similar_id);
@@ -142,8 +128,8 @@ const getExistingSimilarContent = async ({
 };
 const getListCohorts = async ({ contentID }: { contentID: number }) => {
 	let rows: CohortResult[] = await CallProcedure({
-			proc: "usp_GetListCohorts",
-			args: [contentID]
+		proc: "usp_GetListCohorts",
+		args: [contentID]
 	});
 	return rows;
 };
@@ -166,48 +152,37 @@ const saveSimilarContent = async ({
 	let i: number = 0;
 	await CallProcedure({
 		proc: "usp_CreateSimilarContent",
-		args: [contentID, similarContent.map(({id}) => {
-			return id
-		}).join(",")]
-	});
-};
-const populateContent = async ({ similarIDs }: { similarIDs: number[] }) => {
-	if (similarIDs.length == 0) {
-		return [];
-	}
-	let rows: Content[] = await CallProcedure({
-		proc: "usp_GetContents",
-		args: [similarIDs.join(",")]
-	});
-	rows.forEach((row) => {
-		const parenthetical: string = JSON.parse(
-			row.raw_data || "{}"
-		).parenthetical;
-		row.data = {
-			parenthtical: parenthetical
-		};
-		delete row.raw_data;
-		row.image =
-			row.image === null
-				? undefined
-				: `${Math.floor(row.id / 1000)}/${row.id % 100}/${
-						row.id
-					}`;
-	});
-	return rows.sort((a, b) => {
-		let a_pos: number = -1;
-		let b_pos: number = -1;
-		let i = 0;
-		similarIDs.forEach((id) => {
-			if (id == a.id) {
-				a_pos = i;
-			}
-			if (id == b.id) {
-				b_pos = i;
-			}
-			i++;
-		});
-		return a_pos - b_pos;
+		args: [
+			contentID,
+			similarContent
+				.map(({ id }) => {
+					return id;
+				})
+				.join(",")
+		]
 	});
 };
 
+// Define weighting logic values
+const weights: Record<string, Weight> = {
+	PERFORMER: {
+		weight: 0.9,
+		cap: 4
+	},
+	CREATOR: {
+		weight: 1.25,
+		cap: 3
+	},
+	GENRE: {
+		weight: 0.5,
+		cap: 1
+	},
+	MEDIUM: {
+		weight: 0.75,
+		cap: 1.5
+	},
+	LIST_FREQUENCY: {
+		weight: 0.8,
+		cap: 3
+	}
+};
