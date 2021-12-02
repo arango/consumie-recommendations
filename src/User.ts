@@ -11,8 +11,13 @@ export class User {
 		this.id = id;
 	}
 
+	// TODO: Get recommended users. I have no idea what this would be based on.
+	// Users that other users you follow also follow + people who follow you?
+	// Most popular users? Some mix thereof?
+
 	async getRecommendedContent({ type }: { type: string }) {
 		type = type.toUpperCase();
+
 		// Get a bunch of highly rated and/or frequently consumed items by the user
 		const favorites: Content[] = await getUserFavorites({
 			userID: this.id,

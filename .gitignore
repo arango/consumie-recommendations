@@ -2,3 +2,4 @@
 /dist
 .remote-sync.json
 /node_modules
+.vscode/sftp.json
