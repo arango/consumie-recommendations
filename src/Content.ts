@@ -101,12 +101,11 @@ export class Content {
 
 		// Save to DB
 		saveSimilarContent({ contentID: this.id, similarContent: sorted });
-
 		const ids: number[] = sorted.map(({ id }) => {
 			return id;
 		});
 		this.relatedContent = await PopulateContent({
-			contentIDs: existSimilar
+			contentIDs: ids
 		});
 		return this.relatedContent;
 	}
