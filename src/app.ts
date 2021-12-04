@@ -56,8 +56,11 @@ app.get("/recommended/:userID/:type", async (_req: Request, res: Response) => {
 		return;
 	}
 	const u: User = new User({ id: userID });
-	const recommendations = await u.getRecommendedContent({ type: type });
-	res.json(recommendations);
+	if (type.toUpperCase() === "USER") {
+		res.json(await u.getRecommendedUsers());
+	} else {
+		res.json(await u.getRecommendedContent({ type: type }));
+	}
 });
 
 const PORT: string | number = process.env.PORT || 5000;

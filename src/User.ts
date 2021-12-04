@@ -6,6 +6,9 @@ import { PopularContentResult } from "./Models/PopularContentResults";
 
 export class User {
 	id: number;
+	name?: string;
+	image?: string;
+	cnt?: number;
 
 	constructor({ id }: { id: number }) {
 		this.id = id;
@@ -14,6 +17,24 @@ export class User {
 	// TODO: Get recommended users. I have no idea what this would be based on.
 	// Users that other users you follow also follow + people who follow you?
 	// Most popular users? Some mix thereof?
+
+	async getRecommendedUsers() {
+		const users: User[] = await CallProcedure({
+			proc: "usp_GetRecommendedUsers",
+			args: [this.id]
+		});
+		users.forEach((u) => {
+			const imageID: number =
+				u.image === null ? 0 : parseInt(u.image || "0");
+			u.image =
+				imageID == 0
+					? undefined
+					: `${Math.floor(imageID / 1000)}/${
+							imageID % 100
+					  }/${imageID}`;
+		});
+		return users;
+	}
 
 	async getRecommendedContent({ type }: { type: string }) {
 		type = type.toUpperCase();
