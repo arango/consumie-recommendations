@@ -21,7 +21,7 @@ export class User {
 	async getRecommendedUsers() {
 		const users: User[] = await CallProcedure({
 			proc: "usp_GetRecommendedUsers",
-			args: [this.id]
+			args: [this.id, 20]
 		});
 		users.forEach((u) => {
 			const imageID: number =
@@ -39,6 +39,14 @@ export class User {
 	async getRecommendedContent({ type }: { type: string }) {
 		type = type.toUpperCase();
 
+		let recommended: Content[] = await getSavedRecommendations({
+			userID: this.id,
+			type: type
+		});
+		if (recommended.length > 0) {
+			return recommended;
+		}
+
 		// Get a bunch of highly rated and/or frequently consumed items by the user
 		const favorites: Content[] = await getUserFavorites({
 			userID: this.id,
@@ -46,21 +54,69 @@ export class User {
 		});
 
 		// Get related content from those items, filtering out items the user has consumed
-		const recommended: Content[] = await getSimilarContent({
+		recommended = await getSimilarContent({
 			content: favorites,
 			userID: this.id,
 			type: type
 		});
 
-		// if we have at least 10 recommendations based on favorites, return those
-		if (recommended.length >= 10) {
-			return recommended.slice(0, 10);
+		if (recommended.length < 20) {
+			recommended = recommended.concat(
+				await getPopularContent({ userID: this.id, type: type })
+			);
 		}
-		return recommended.concat(
-			await getPopularContent({ userID: this.id, type: type })
-		);
+
+		recommended = recommended.slice(0, 20);
+		saveRecommendations({
+			userID: this.id,
+			type: type,
+			content: recommended
+		});
+		return recommended;
 	}
 }
+const getSavedRecommendations = async ({
+	userID,
+	type
+}: {
+	userID: number;
+	type: string;
+}) => {
+	const recommendations: Content[] = await CallProcedure({
+		proc: "usp_GetRecommendedContent",
+		args: [userID, type]
+	});
+	if (recommendations.length == 0) {
+		return [];
+	}
+	return await PopulateContent({
+		contentIDs: recommendations.map(({ id }) => {
+			return id;
+		})
+	});
+};
+const saveRecommendations = async ({
+	userID,
+	type,
+	content
+}: {
+	userID: number;
+	type: string;
+	content: Content[];
+}) => {
+	await CallProcedure({
+		proc: "usp_CreateRecommendedContent",
+		args: [
+			userID,
+			type,
+			content
+				.map(({ id }) => {
+					return id;
+				})
+				.join(",")
+		]
+	});
+};
 const filterContent = async ({
 	userID,
 	content
@@ -132,12 +188,8 @@ const sortAndDedupeRecommendations = ({
 				content.filter((c) => {
 					return c.id === a.id;
 				}).length;
-			if (diff == 0) {
-				// Random sort in the case of ties to keep things lively!
-				return 0.5 - Math.random();
-			} else {
-				return diff;
-			}
+
+			return diff;
 		});
 	const uniqueIDs: Record<number, number> = {};
 	return content.filter((c) => {
@@ -174,7 +226,7 @@ const getPopularContent = async ({
 }) => {
 	const popular: PopularContentResult[] = await CallProcedure({
 		proc: "usp_GetPopularUnconsumedContent",
-		args: [type, 10, userID]
+		args: [type, 20, userID]
 	});
 	const content: Content[] = await PopulateContent({
 		contentIDs: popular.map(({ id }) => {

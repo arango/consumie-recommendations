@@ -146,9 +146,6 @@ const saveSimilarContent = async ({
 	contentID: number;
 	similarContent: Score[];
 }) => {
-	let values: string[] = [];
-	let args: number[] = [];
-	let i: number = 0;
 	await CallProcedure({
 		proc: "usp_CreateSimilarContent",
 		args: [
